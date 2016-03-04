@@ -10,34 +10,46 @@ def main(unused_args):
     x = np.arange(0., np.pi*12, .03)
     bell = np.exp(-(np.sin(x-np.pi/2)-2*np.pi)**2/9.)
 
-    y = 100*np.sin(4*x)*bell
+    y = 100*np.sin(8*x)*bell
 
     y = np.reshape(y, (len(x), 1))
-    
+
     n_steps = len(x)/2
     seq_width = 10
-    num_hidden = 20
+    num_hidden = 5
     lag = 60
 
     yy = []
     ty = []
-    for i in range(n_steps):
+    for i in range(2*n_steps-lag):
         window = []
         for j in range(seq_width):
             window.append(y[i+j])
         yy.append(window)
         ty.append(y[i+lag])
 
+    for i in range(lag):
+        window=[]
+        for j in range(seq_width):
+            window.append(0)
+        yy.append(window)
+        ty.append(0)
+
     yy = np.array(yy)
-    yy = np.reshape(yy, (n_steps, seq_width))
+    yy = np.reshape(yy, (2*n_steps, seq_width))
     ty = np.array([ty,])
-    ty = np.reshape(ty, (n_steps, 1))
+    ty = np.reshape(ty, (2*n_steps, 1))
+    
     print ty.shape
-
-
-    plt.plot(x[:n_steps], yy)
-    plt.show()
     print yy.shape
+
+    print yy[n_steps:2*n_steps].shape, ty[n_steps:2*n_steps].shape
+    print yy[:n_steps].shape, ty[:n_steps].shape
+
+
+    # plt.plot(x[:n_steps], yy)
+    # plt.show()
+    # print yy.shape
 
     initializer = tf.random_uniform_initializer(-.1, .1)
 
@@ -74,6 +86,9 @@ def main(unused_args):
     session.run(init)
 
     feed = {early_stop:n_steps, seq_input:yy[:n_steps], seq_target:ty[:n_steps]}
+
+    print yy[n_steps:2*n_steps].shape, ty[n_steps:2*n_steps].shape
+
     outs = session.run(output, feed_dict=feed)
     plt.figure(1)
     plt.plot(x[:n_steps], ty[:n_steps], 'b-', x[:n_steps], outs[:n_steps], 'r-')
@@ -86,11 +101,11 @@ def main(unused_args):
     for i in range(100):
         new_lr = 1e-2
         if i > 25:
-            new_lr = 5e-3
+            new_lr = 1e-2
         elif i > 50:
-            new_lr = 1e-3
+            new_lr = 1e-2
         elif i > 75:
-            new_lr = 5e-4
+            new_lr = 1e-2
         session.run(tf.assign(lr, new_lr))
 
         err, outs, _ = session.run([error, output, train_op], feed_dict=feed)
@@ -99,25 +114,24 @@ def main(unused_args):
         plt.clf()
         plt.plot(x[:n_steps], ty[:n_steps], 'b-', x[:n_steps], outs[:n_steps], 'r-')
         plt.draw()
-        time.sleep(.25)
+        time.sleep(.1)
 
 
     saver = tf.train.Saver()
     saver.save(session, 'sine-wave-rnn-'+str(num_hidden) + '-' + str(seq_width), global_step = 0)
-
     plt.ioff()
     plt.clf()
 
     plt.figure(1)
-    plt.plot(x[:n_steps], ty[:n_steps], 'b-', x[:n_steps], outs[:n_steps], 'r-')
+    #feed training data
+    outs = session.run(output, feed_dict = feed)
+    plt.plot(x[:n_steps], ty[:n_steps], 'b-', x[:n_steps], outs[:n_steps], 'g--')
 
-    outs, m_softmax_w = session.run([output, softmax_w], feed_dict=feed)
+    #feed the rest of the data
+    feed = {early_stop:n_steps-60, seq_input:yy[n_steps:], seq_target:ty[n_steps:]}
 
-    plt.figure(2)
-    plt.plot(x[:n_steps], ty[:n_steps], 'b-', x[:n_steps], outs[:n_steps], 'r-')
-    plt.figure(3)
-    plt.plot(np.arange(num_hidden), m_softmax_w)
-
+    plt.plot(x[n_steps:2*n_steps], ty[n_steps:2*n_steps], 'b-')
+    plt.plot(x[n_steps:2*n_steps], outs, 'r--')
     plt.show()
 
 
