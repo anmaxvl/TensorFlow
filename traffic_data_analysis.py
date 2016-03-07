@@ -78,23 +78,24 @@ class TrafficRNN(SequenceRNN):
 
 class TrafficDataConfig(object):
     start = 0
-    window_size = 3
-    n_steps = 528
+    window_size = 24
+    n_steps = 2016
     use_1st_diffs = True
     use_2nd_diffs = False
-    lag = 48
+    lag = 72
     batch_size = 48
 
 class TestConfig(object):
-    start = 480
-    window_size = 3
-    n_steps = 624
+    start = 2016
+    window_size = 24
+    n_steps = 10080
     use_1st_diffs = True
     use_2nd_diffs = False
-    lag = 48
+    lag = 72
     batch_size = 48
 
 class TrafficRNNConfig(object):
+    max_epoch = 250
     num_hidden = 200
     num_layers = 1
     useGDO = False
@@ -133,7 +134,7 @@ def run_epoch(session, m, data, eval_op, config):
     return epoch_error, rnn_outs
 
 def main(unused_args):
-    tdLoader = TrafficDataLoader('internet-data/data/internet-traffic-11-cities-hourly.csv', max_norm=5.)
+    tdLoader = TrafficDataLoader('internet-data/data/internet-traffic-11-cities-5min.csv', max_norm=5.)
     tdConfig = TrafficDataConfig()
     tmConfig = TrafficRNNConfig(tdConfig)
     batch_size = tmConfig.batch_size
@@ -146,60 +147,70 @@ def main(unused_args):
     data['seq_target'] = seq_target
     data['early_stop'] = tdConfig.batch_size
 
+    is_training = False
+
     with tf.Graph().as_default(), tf.Session() as session:
         model = TrafficRNN(is_training=True, config=tmConfig)
 
         tf.initialize_all_variables().run()
 
         saver = tf.train.Saver()
-        for epoch in range(250):
-            lr_value = 1e-3
-            if epoch > 7:
-                lr_value = 5e-4
-            elif epoch > 25:
-                lr_value = 1e-4
-            elif epoch > 50:
-                lr_value = 5e-5
-            elif epoch > 75:
-                lr_value = 1e-5
-            elif epoch > 100:
-                lr_value = 5e-6
-            elif epoch > 225:
-                lr_value = 1e-7
 
-            # lr_value = 1e-4
+        if is_training:
+            for epoch in range(tmConfig.max_epoch):
+                lr_value = 1e-3
+                if epoch > 7:
+                    lr_value = 5e-4
+                elif epoch > 25:
+                    lr_value = 1e-4
+                elif epoch > 50:
+                    lr_value = 5e-5
+                elif epoch > 75:
+                    lr_value = 1e-5
+                elif epoch > 100:
+                    lr_value = 5e-6
+                elif epoch > 225:
+                    lr_value = 1e-7
 
-            model.assign_lr(session, lr_value)
+                # lr_value = 1e-4
 
-            net_outs_all = np.array([])
+                model.assign_lr(session, lr_value)
 
-            error, net_outs_all = run_epoch(session, model, data, model.train_op, tdConfig)
-            error, net_outs_all = run_epoch(session, model, data, tf.no_op(), tdConfig)
-            print net_outs_all.shape, seq_target.shape
-            print ('Epoch %d: %s') % (epoch, error)
-            if epoch == 0:
-                plt.figure(1, figsize=(20,10))
-                plt.ion()
+                net_outs_all = np.array([])
+
+                error, net_outs_all = run_epoch(session, model, data, model.train_op, tdConfig)
+                error, net_outs_all = run_epoch(session, model, data, tf.no_op(), tdConfig)
+                print net_outs_all.shape, seq_target.shape
+                print ('Epoch %d: %s') % (epoch, error)
+                if epoch == 0:
+                    plt.figure(1, figsize=(20,10))
+                    plt.ion()
+                    plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), net_outs_all, 'r-')
+                    plt.ylim([-2, 12])
+                    plt.show()
+                elif epoch == 99:
+                    plt.ioff()
+                    plt.clf()
+                else:
+                    plt.clf()
                 plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), net_outs_all, 'r-')
-                plt.ylim([-2, 12])
-                plt.show()
-            elif epoch == 99:
-                plt.ioff()
-                plt.clf()
-            else:
-                plt.clf()
-            plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), net_outs_all, 'r-')
-            plt.ylim([-1, 6])
-            plt.draw()
-            time.sleep(.25)
+                plt.ylim([-1, 6])
+                plt.draw()
+                time.sleep(.1)
 
-            if epoch > 40 and epoch % 20 == 9:
-                outfile = 'internet-data/saved-models/traffic-rnn-hid-%d-batch-%d-window-%d-lag-%d.chkpnt' % (tmConfig.num_hidden, 
-                                                                                                                tdConfig.batch_size, 
-                                                                                                                tdConfig.window_size, 
-                                                                                                                tdConfig.lag)
-                saver.save(session, outfile, global_step=epoch)
-
+                if epoch > 40 and epoch % 20 == 9:
+                    outfile = 'internet-data/saved-models/traffic-rnn-hid-%d-batch-%d-window-%d-lag-%d.chkpnt' % (tmConfig.num_hidden, 
+                                                                                                                    tdConfig.batch_size, 
+                                                                                                                    tdConfig.window_size, 
+                                                                                                                    tdConfig.lag)
+                    saver.save(session, outfile, global_step=epoch)
+        else:
+            saved_vars = 'internet-data/saved-models/traffic-rnn-hid-%d-batch-%d-window-%d-lag-%d.chkpnt-%d' % (tmConfig.num_hidden, 
+                                                                                                                    tdConfig.batch_size, 
+                                                                                                                    tdConfig.window_size, 
+                                                                                                                    tdConfig.lag,
+                                                                                                                    tmConfig.max_epoch-1)
+            saver.restore(session, saved_vars)
 
 
         train_error, train_outs_all = run_epoch(session, model, data, tf.no_op(), tdConfig)
@@ -217,9 +228,9 @@ def main(unused_args):
         print 'Test error: %s' % test_error
         plt.ioff()
         plt.figure(2, figsize=(20,10))
-        plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), train_outs_all, 'g-')
+        plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), train_outs_all, 'g--')
         plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_seq_target, 'b-')
-        plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_outs_all, 'r-')
+        plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_outs_all, 'r--')
         plt.show()
         time.sleep(1)
 
