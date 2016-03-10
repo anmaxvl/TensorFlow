@@ -33,7 +33,6 @@ class TrafficRNN(SequenceRNN):
         #initial state
         self._initial_state = cell.zero_state(1, tf.float32)
 
-        #ops to feed the whole input to rnn and compute outputs and states
         outputs, states = rnn(cell, inputs, initial_state=self._initial_state, sequence_length=self._early_stop)
         
         #save final state of the rnn
@@ -50,7 +49,10 @@ class TrafficRNN(SequenceRNN):
 
         #ops for least squares error computation
         error = tf.pow(tf.reduce_sum(tf.pow(tf.sub(softmax_output, self._seq_target), 2)), .5)
+        tf.scalar_summary("error", error)
+
         self._error = error
+        self._merge_summaries_op = tf.merge_all_summaries()
 
         if not is_training:
             return
@@ -76,27 +78,47 @@ class TrafficRNN(SequenceRNN):
     def softmax_output(self):
         return self._softmax_output
 
+    @property
+    def merge_summaries_op(self):
+        return self._merge_summaries_op
+
 class TrafficDataConfig(object):
+    """
+    For data sampled in 5 min intervals:
+        start:          0 hours (offset time)
+        window_size:    2 hours
+        lag:            6 hours
+        batch_size:     4 hours
+        n_steps:        168 hours or 7 days
+    """
     start = 0
-    window_size = 24
+    window_size = 36
     n_steps = 2016
     use_1st_diffs = True
     use_2nd_diffs = False
     lag = 72
-    batch_size = 48
+    batch_size = 24
 
 class TestConfig(object):
+    """
+    For data sampled in 5 min intervals:
+        start:          168 hours or 7 days (offset time)
+        window_size:    2 hours
+        lag:            6 hours
+        batch_size:     4 hours
+        n_steps:        840 hours or 35 days
+    """
     start = 2016
-    window_size = 24
+    window_size = 36
     n_steps = 10080
     use_1st_diffs = True
     use_2nd_diffs = False
     lag = 72
-    batch_size = 48
+    batch_size = 24
 
 class TrafficRNNConfig(object):
     max_epoch = 250
-    num_hidden = 200
+    num_hidden = 150
     num_layers = 1
     useGDO = False
     max_grad_norm = 3.
@@ -112,7 +134,7 @@ class TrafficRNNConfig(object):
         else:
             self.seq_width = config.window_size
 
-def run_epoch(session, m, data, eval_op, config):
+def run_epoch(session, m, data, eval_op, config, writer=None):
     state = m.initial_state.eval()
 
     seq_input = data['seq_input']
@@ -127,9 +149,11 @@ def run_epoch(session, m, data, eval_op, config):
         _early_stop = early_stop
         feed = {m.seq_input:_seq_input, m.seq_target:_seq_target, m.early_stop:_early_stop, m.initial_state:state}
 
-        step_error, state, step_outs, _ = session.run([m.error, m.final_state, m.softmax_output, eval_op], feed_dict=feed)
+        summary_str, step_error, state, step_outs, _ = session.run([m.merge_summaries_op, m.error, m.final_state, m.softmax_output, eval_op], feed_dict=feed)
         epoch_error += step_error
         rnn_outs = np.append(rnn_outs, step_outs)
+        if writer is not None:
+            writer.add_summary(summary_str, i)
 
     return epoch_error, rnn_outs
 
@@ -147,30 +171,38 @@ def main(unused_args):
     data['seq_target'] = seq_target
     data['early_stop'] = tdConfig.batch_size
 
-    is_training = False
+    is_training = True
+    save_graph = False
 
     with tf.Graph().as_default(), tf.Session() as session:
         model = TrafficRNN(is_training=True, config=tmConfig)
 
+        saver = tf.train.Saver()
+        merged = None
+        writer = None
+
+        if is_training and save_graph:
+            writer = tf.train.SummaryWriter('/tmp/rnn_logs', session.graph_def)
+
         tf.initialize_all_variables().run()
 
-        saver = tf.train.Saver()
-
+        # if is_training and save_graph:
+        #     tf.train.write_graph(session.graph_def, '/tmp/rnn_graph/', 'traffic_rnn_graph')
         if is_training:
             for epoch in range(tmConfig.max_epoch):
-                lr_value = 1e-3
-                if epoch > 7:
-                    lr_value = 5e-4
-                elif epoch > 25:
-                    lr_value = 1e-4
-                elif epoch > 50:
+                lr_value = 1e-4
+                if epoch > 50:
                     lr_value = 5e-5
-                elif epoch > 75:
-                    lr_value = 1e-5
                 elif epoch > 100:
-                    lr_value = 5e-6
-                elif epoch > 225:
+                    lr_value = 1e-6
+                elif epoch > 200:
                     lr_value = 1e-7
+                # elif epoch > 75:
+                #     lr_value = 1e-4
+                # elif epoch > 100:
+                #     lr_value = 5e-5
+                # elif epoch > 225:
+                #     lr_value = 1e-5
 
                 # lr_value = 1e-4
 
@@ -179,22 +211,23 @@ def main(unused_args):
                 net_outs_all = np.array([])
 
                 error, net_outs_all = run_epoch(session, model, data, model.train_op, tdConfig)
-                error, net_outs_all = run_epoch(session, model, data, tf.no_op(), tdConfig)
+                error, net_outs_all = run_epoch(session, model, data, tf.no_op(), tdConfig, writer)
                 print net_outs_all.shape, seq_target.shape
                 print ('Epoch %d: %s') % (epoch, error)
+
                 if epoch == 0:
                     plt.figure(1, figsize=(20,10))
                     plt.ion()
+                    plt.ylim([-1, 6])
                     plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), net_outs_all, 'r-')
-                    plt.ylim([-2, 12])
                     plt.show()
-                elif epoch == 99:
-                    plt.ioff()
-                    plt.clf()
+                    time.sleep(20)
                 else:
                     plt.clf()
-                plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), net_outs_all, 'r-')
                 plt.ylim([-1, 6])
+                plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), net_outs_all, 'r-')
+                img_loc = 'out-img/epoch-%05d.png' % (epoch)
+                plt.savefig(img_loc)
                 plt.draw()
                 time.sleep(.1)
 

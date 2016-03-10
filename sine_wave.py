@@ -14,21 +14,20 @@ def gen_seq():
 
     return x, y
 
-def gen_batch(x, y, n_steps, offset, window_size=10, lag=60):
+def gen_input(y, n_steps, offset, seq_width=10, lag=60):
     seq_input = []
     seq_target = []
-    seq_width = window_size
 
     for i in range(offset, offset+n_steps):
         window = []
         for j in range(seq_width):
-            if i+j<len(y):
-                window.append(y[i+j])
+            if i+j+seq_width<len(y):
+                window.append(y[i+j+seq_width])
             else:
                 window.append(0)
         seq_input.append(window)
-        if i+lag < len(y):
-            seq_target.append(y[i+lag])
+        if i+lag+seq_width < len(y):
+            seq_target.append(y[i+lag+seq_width])
         else:
             seq_target.append(0)
 
@@ -122,8 +121,8 @@ def main(unused_args):
     session.run(init)
 
     #training and testing data
-    train_input, train_target = gen_batch(x, y, n_steps, 0, 10, 60)
-    test_input, test_target = gen_batch(x, y, n_steps, n_steps, 10, 60)
+    train_input, train_target = gen_input(y, n_steps, offset=0, seq_width=10, lag=60)
+    test_input, test_target = gen_input(y, n_steps, offset=n_steps, seq_width=10, lag=60)
 
     feed = {early_stop:n_steps, seq_input:train_input, seq_target:train_target}
 
@@ -139,7 +138,7 @@ def main(unused_args):
     session.run(tf.assign(lr, 1.))
     saver = tf.train.Saver()
 
-    is_training = False
+    is_training = True
 
     if is_training:
         #Training for 100 epochs
