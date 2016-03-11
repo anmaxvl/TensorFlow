@@ -41,14 +41,14 @@ class TrafficRNN(SequenceRNN):
         #outputs originaly comes as a list of tensors, but we need a single tensor for tf.matmul
         outputs = tf.reshape(tf.concat(1, outputs), [-1, num_hidden])
 
-        #softmax the rnn outputs
-        softmax_w = tf.get_variable('softmax_w', [num_hidden, 1])
-        softmax_b = tf.get_variable('softmax_b', [1])
-        softmax_output = tf.matmul(outputs, softmax_w) + softmax_b
-        self._softmax_output = softmax_output
+        #rnn outputs
+        W = tf.get_variable('W', [num_hidden, 1])
+        b = tf.get_variable('b', [1])
+        _output = tf.matmul(outputs, W) + b
+        self._output = _output
 
         #ops for least squares error computation
-        error = tf.pow(tf.reduce_sum(tf.pow(tf.sub(softmax_output, self._seq_target), 2)), .5)
+        error = tf.pow(tf.reduce_sum(tf.pow(tf.sub(_output, self._seq_target), 2)), .5)
         tf.scalar_summary("error", error)
 
         self._error = error
@@ -75,8 +75,8 @@ class TrafficRNN(SequenceRNN):
         self._train_op = optimizer.apply_gradients(zip(grads, tvars))
 
     @property
-    def softmax_output(self):
-        return self._softmax_output
+    def output(self):
+        return self._output
 
     @property
     def merge_summaries_op(self):
@@ -149,7 +149,7 @@ def run_epoch(session, m, data, eval_op, config, writer=None):
         _early_stop = early_stop
         feed = {m.seq_input:_seq_input, m.seq_target:_seq_target, m.early_stop:_early_stop, m.initial_state:state}
 
-        summary_str, step_error, state, step_outs, _ = session.run([m.merge_summaries_op, m.error, m.final_state, m.softmax_output, eval_op], feed_dict=feed)
+        summary_str, step_error, state, step_outs, _ = session.run([m.merge_summaries_op, m.error, m.final_state, m.output, eval_op], feed_dict=feed)
         epoch_error += step_error
         rnn_outs = np.append(rnn_outs, step_outs)
         if writer is not None:
@@ -258,14 +258,40 @@ def main(unused_args):
         test_data['early_stop'] = testDataConfig.batch_size
         test_error, test_outs_all = run_epoch(session, model, test_data, tf.no_op(), testDataConfig)
 
-        print 'Test error: %s' % test_error
+        upper_curve = test_outs_all + .1*test_outs_all
+        lower_curve = test_outs_all - .1*test_outs_all
+        shift_left = np.zeros(test_outs_all.shape)
+        shift_right = np.zeros(test_outs_all.shape)
+        shift_left[:-18] = test_outs_all[18:]
+        shift_right[18:] = test_outs_all[:-18]
+
+        curve1 = np.maximum(upper_curve, shift_left)
+        curve1 = np.maximum(curve1, shift_left)
+        curve1 = np.maximum(curve1, shift_right)
+        curve2 = np.minimum(lower_curve, shift_right)
+        curve2 = np.minimum(curve2, upper_curve)
+        curve2 = np.minimum(curve2, shift_left)
+
+        print test_outs_all.shape
+
+        x = xrange(len(test_outs_all))
+        plt.figure(3, figsize=(20, 10))
         plt.ioff()
-        plt.figure(2, figsize=(20,10))
-        plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), train_outs_all, 'g--')
-        plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_seq_target, 'b-')
-        plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_outs_all, 'r--')
+
+        plt.plot(x, test_outs_all, 'b-', alpha=1)
+        plt.plot(x, test_seq_target, 'g-', alpha=1)
+        plt.plot(x, curve1, 'r-', alpha=.1)
+        plt.plot(x, curve2, 'r-', alpha=.1)
+        plt.fill_between(x, curve1, curve2, color='grey', alpha=.3)
         plt.show()
-        time.sleep(1)
+
+        print 'Test error: %s' % test_error
+        # plt.figure(2, figsize=(20,10))
+        # plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), train_outs_all, 'g--')
+        # plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_seq_target, 'b-')
+        # plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_outs_all, 'r--')
+        # plt.show()
+        # time.sleep(1)
 
 
 if __name__=='__main__':

@@ -95,12 +95,12 @@ def main(unused_args):
     #outputs is a list, but we need a single tensor instead
     outputs = tf.reshape(tf.concat(1, outputs), [-1, num_hidden])
 
-    #softmax layer weights
-    softmax_w = tf.get_variable('softmax_w', [num_hidden, 1])
-    softmax_b = tf.get_variable('softmax_b', [1])
+    #mapping to 1-D
+    W = tf.get_variable('W', [num_hidden, 1])
+    b = tf.get_variable('b', [1])
 
     #final prediction
-    output = tf.matmul(outputs, softmax_w) + softmax_b
+    output = tf.matmul(outputs, W) + b
 
     #squared error
     error = tf.pow(tf.reduce_sum(tf.pow(tf.sub(output, seq_target), 2)), .5)
