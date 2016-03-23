@@ -14,7 +14,6 @@ class TrafficRNN(SequenceRNN):
         seq_width = config.seq_width
         n_steps = config.batch_size
         num_hidden = config.num_hidden
-        num_relu = config.num_relu
         num_layers = config.num_layers
 
         #tensors for input, target and sequence length placeholders
@@ -86,17 +85,17 @@ class TrafficDataConfig(object):
     """
     For data sampled in 5 min intervals:
         start:          0 hours (offset time)
-        window_size:    2 hours
-        lag:            6 hours
-        batch_size:     4 hours
-        n_steps:        168 hours or 7 days
+        window_size:    1 hours
+        lag:            8 hours
+        batch_size:     2 hours
+        n_steps:        336 hours or 14 days
     """
     start = 0
-    window_size = 36
-    n_steps = 2016
+    window_size = 12
+    n_steps = 4032
     use_1st_diffs = True
     use_2nd_diffs = False
-    lag = 72
+    lag = 48
     batch_size = 24
 
 class TestConfig(object):
@@ -108,21 +107,20 @@ class TestConfig(object):
         batch_size:     4 hours
         n_steps:        840 hours or 35 days
     """
-    start = 2016
-    window_size = 36
+    start = 4032
+    window_size = 12
     n_steps = 10080
     use_1st_diffs = True
     use_2nd_diffs = False
-    lag = 72
+    lag = 48
     batch_size = 24
 
 class TrafficRNNConfig(object):
-    max_epoch = 250
-    num_hidden = 150
+    max_epoch = 300
+    num_hidden = 50
     num_layers = 1
     useGDO = False
     max_grad_norm = 3.
-    num_relu = 40
     def __init__(self, config):
         self.batch_size = config.batch_size
         if config.use_1st_diffs and config.use_2nd_diffs:
@@ -186,25 +184,20 @@ def main(unused_args):
 
         tf.initialize_all_variables().run()
 
-        # if is_training and save_graph:
-        #     tf.train.write_graph(session.graph_def, '/tmp/rnn_graph/', 'traffic_rnn_graph')
+        decay = .8
         if is_training:
+            lr_value = 1e-3
             for epoch in range(tmConfig.max_epoch):
-                lr_value = 1e-4
-                if epoch > 50:
-                    lr_value = 5e-5
+                if epoch > 10:
+                    lr_value = 1e-3
+                elif epoch > 75:
+                    lr_value = 1e-4
                 elif epoch > 100:
                     lr_value = 1e-6
                 elif epoch > 200:
                     lr_value = 1e-7
-                # elif epoch > 75:
-                #     lr_value = 1e-4
-                # elif epoch > 100:
-                #     lr_value = 5e-5
-                # elif epoch > 225:
-                #     lr_value = 1e-5
-
-                # lr_value = 1e-4
+                elif epoch > 250:
+                    lr_value = 1e-8
 
                 model.assign_lr(session, lr_value)
 
@@ -286,12 +279,12 @@ def main(unused_args):
         plt.show()
 
         print 'Test error: %s' % test_error
-        # plt.figure(2, figsize=(20,10))
-        # plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), train_outs_all, 'g--')
-        # plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_seq_target, 'b-')
-        # plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_outs_all, 'r--')
-        # plt.show()
-        # time.sleep(1)
+        plt.figure(2, figsize=(20,10))
+        plt.plot(xrange(tdConfig.n_steps), seq_target, 'b-', xrange(tdConfig.n_steps), train_outs_all, 'g--')
+        plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_seq_target, 'b-')
+        plt.plot(xrange(tdConfig.n_steps-24, tdConfig.n_steps+testDataConfig.n_steps-24), test_outs_all, 'r--')
+        plt.show()
+        time.sleep(1)
 
 
 if __name__=='__main__':
